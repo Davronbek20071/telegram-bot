@@ -1,8 +1,13 @@
 <?php
-// CONFIGURATION
-define('API_KEY', '7559916614:AAGbxwOQMpU8U0KJAJb8dzwFk_CDUtxr0EU');
-$admin = 7342925788;
+// =======================
+// ZAKOVAT BOT V2 — BY DAVRONBEK
+// =======================
 
+// TOKEN va ADMIN ID
+const API_KEY = '7559916614:AAGbxwOQMpU8U0KJAJb8dzwFk_CDUtxr0EU';
+const ADMIN_ID = 7342925788;
+
+// CURL orqali Telegramga murojaat funksiyasi
 function bot($method, $data = []) {
     $url = "https://api.telegram.org/bot" . API_KEY . "/" . $method;
     $ch = curl_init();
@@ -12,164 +17,174 @@ function bot($method, $data = []) {
     return json_decode(curl_exec($ch), true);
 }
 
-// UPDATE PARSING
+// Foydalanuvchi bilan bog'liq update
 $update = json_decode(file_get_contents("php://input"), true);
 $message = $update["message"] ?? null;
-$text = $message["text"] ?? '';
-$cid = $message["chat"]["id"] ?? '';
-$uid = $message["from"]["id"] ?? '';
-$name = $message["from"]["first_name"] ?? '';
+$callback = $update["callback_query"] ?? null;
 
-// STEP AND DAY DETECTION
-$step_file = "steps/$uid.txt";
-$day_file = "day.txt";
-if (!file_exists($day_file)) file_put_contents($day_file, "1");
-$current_day = file_get_contents($day_file);
+// Agar xabar kelsa
+if ($message) {
+    $cid = $message["chat"]["id"];
+    $mid = $message["message_id"];
+    $text = trim($message["text"] ?? "");
+    $name = $message["from"]["first_name"];
+    
+    if (!file_exists("users.txt")) file_put_contents("users.txt", "");
+    if (strpos(file_get_contents("users.txt"), "$cid") === false) {
+        file_put_contents("users.txt", "$cid\n", FILE_APPEND);
+    }
 
-// RESPONSE HANDLERS
-function getQuestion($day, $index) {
-    $file = "questions/$day.txt";
-    if (!file_exists($file)) return null;
-    $lines = file($file, FILE_IGNORE_NEW_LINES);
-    return $lines[$index] ?? null;
-}
+    // Boshlanishi
+    if ($text == "/start") {
+        bot('sendMessage', [
+            'chat_id' => $cid,
+            'text' => "🤖 *Assalomu alaykum, $name! Zakovat botga xush kelibsiz.*\n\n" .
+                      "Bot sizga har kuni 1 soatlik aqliy mashg'ulotlar beradi.\n" .
+                      "Savollarga javob berasiz, oxirida esa natijalaringizni ko'rasiz.\n\n" .
+                      "*Yozing:*\n1 — 1-kun savollari\n2 — 2-kun savollari va hokazo",
+            'parse_mode' => 'markdown',
+            'reply_markup' => json_encode([
+                'keyboard' => [[['text' => "📊 Reyting"]]],
+                'resize_keyboard' => true
+            ])
+        ]);
+    }
 
-function getAnswer($day, $index) {
-    $file = "answers/$day.txt";
-    if (!file_exists($file)) return null;
-    $lines = file($file, FILE_IGNORE_NEW_LINES);
-    return trim(strtolower($lines[$index] ?? ''));
-}
-
-function countQuestions($day) {
-    $file = "questions/$day.txt";
-    if (!file_exists($file)) return 0;
-    return count(file($file, FILE_IGNORE_NEW_LINES));
-}
-
-function checkAnswer($input, $correct) {
-    return strtolower(trim($input)) === strtolower(trim($correct));
-}
-
-// START COMMAND
-if ($text == "/start") {
-    bot('sendMessage', [
-        'chat_id' => $cid,
-        'text' => "🤖 Salom, $name!
-Bu bot orqali har kuni Zakovat mashg'ulotlarini bajarasiz.
-
-Yuboring:
-1 - 1-kun savollari
-2 - 2-kun savollari
-/admin - admin menyusi",
-    ]);
-}
-
-// ADMIN PANEL
-elseif ($text == "/admin" && $uid == $admin) {
-    bot('sendMessage', [
-        'chat_id' => $cid,
-        'text' => "🔐 Admin panel",
-        'reply_markup' => json_encode([
-            'keyboard' => [
-                [['text' => '➕ Yangi kun qo‘shish']],
-                [['text' => '📢 Xabar yuborish'], ['text' => '📊 Statistika']],
-                [['text' => '/start']]
-            ], 'resize_keyboard' => true
-        ])
-    ]);
-}
-
-// ADMIN YANGI KUN QO‘SHISH
-elseif ($text == '➕ Yangi kun qo‘shish' && $uid == $admin) {
-    file_put_contents("admin_step.txt", "savollar");
-    file_put_contents("admin_temp.txt", "");
-    bot('sendMessage', ['chat_id' => $cid, 'text' => "📝 Savollarni kiriting. Har birini alohida yuboring. '✅ Tayyor' deb yozganda tugaydi."]);
-}
-elseif (file_exists("admin_step.txt") && $uid == $admin) {
-    $step = file_get_contents("admin_step.txt");
-    if ($step == "savollar" && $text != '✅ Tayyor') {
-        file_put_contents("admin_temp.txt", $text . PHP_EOL, FILE_APPEND);
-    } elseif ($step == "savollar" && $text == '✅ Tayyor') {
-        $day = (int)file_get_contents($day_file) + 1;
-        rename("admin_temp.txt", "questions/$day.txt");
-        file_put_contents("admin_step.txt", "javoblar");
-        bot('sendMessage', ['chat_id' => $cid, 'text' => "✅ Endi javoblarni kiriting (xuddi shunday tartibda). Tugaganda '✅ Tayyor' deb yozing."]);
-    } elseif ($step == "javoblar" && $text != '✅ Tayyor') {
-        file_put_contents("admin_temp.txt", $text . PHP_EOL, FILE_APPEND);
-    } elseif ($step == "javoblar" && $text == '✅ Tayyor') {
-        $day = (int)file_get_contents($day_file) + 1;
-        rename("admin_temp.txt", "answers/$day.txt");
-        file_put_contents($day_file, $day);
-        unlink("admin_step.txt");
-        bot('sendMessage', ['chat_id' => $cid, 'text' => "🎉 $day-kun savollari qo‘shildi. Barcha foydalanuvchilarga xabar yuborilmoqda."]);
-
-        $users = glob("scores/*.txt");
-        foreach ($users as $user_file) {
-            $user_id = basename($user_file, ".txt");
-            bot('sendMessage', [
-                'chat_id' => $user_id,
-                'text' => "🆕 $day-kun Zakovat savollari tayyor! Botga $day deb yuboring."
-            ]);
+    // Reyting tugmasi
+    elseif ($text == "📊 Reyting") {
+        $scores = file_exists("scores.json") ? json_decode(file_get_contents("scores.json"), true) : [];
+        arsort($scores);
+        $top = array_slice($scores, 0, 10, true);
+        $res = "🏆 *Top 10 Reyting:*\n";
+        foreach ($top as $id => $score) {
+            $res .= "[`$id`](tg://user?id=$id) — $score%\n";
         }
-    }
-}
-
-// TEST BOSHLASH
-elseif (is_numeric($text)) {
-    $day = intval($text);
-    if (!file_exists("questions/$day.txt")) {
-        bot('sendMessage', ['chat_id' => $cid, 'text' => "❌ Bunday kun topilmadi."]);
-    } else {
-        file_put_contents($step_file, "0|$day");
-        bot('sendMessage', ['chat_id' => $cid, 'text' => getQuestion($day, 0)]);
-    }
-}
-
-// JAVOB TEKSHIRISH
-elseif (file_exists($step_file)) {
-    [$step, $day] = explode('|', file_get_contents($step_file));
-    $step = (int)$step;
-    $total = countQuestions($day);
-
-    $trueAns = getAnswer($day, $step);
-    $isCorrect = checkAnswer($text, $trueAns);
-
-    $resultsFile = "results/{$uid}_$day.txt";
-    $scoreFile = "scores/$uid.txt";
-
-    if (!file_exists($resultsFile)) file_put_contents($resultsFile, "");
-
-    if ($isCorrect) {
-        file_put_contents($resultsFile, "✅ $text\n", FILE_APPEND);
-        $score = file_exists($scoreFile) ? file_get_contents($scoreFile) : 0;
-        file_put_contents($scoreFile, $score + 1);
-        bot('sendMessage', ['chat_id' => $cid, 'text' => "✅ To‘g‘ri javob!"]);
-    } else {
-        file_put_contents($resultsFile, "❌ $text\n", FILE_APPEND);
-        bot('sendMessage', ['chat_id' => $cid, 'text' => "❌ Noto‘g‘ri. To‘g‘ri javob: $trueAns"]);
+        bot('sendMessage', ['chat_id' => $cid, 'text' => $res, 'parse_mode' => 'markdown']);
     }
 
-    $step++;
-    if ($step < $total) {
-        file_put_contents($step_file, "$step|$day");
-        bot('sendMessage', ['chat_id' => $cid, 'text' => getQuestion($day, $step)]);
-    } else {
-        unlink($step_file);
+    // Admin panel
+    elseif ($text == "/admin" && $cid == ADMIN_ID) {
+        bot('sendMessage', [
+            'chat_id' => $cid,
+            'text' => "🔐 Admin panel:",
+            'reply_markup' => json_encode([
+                'keyboard' => [
+                    [["text" => "➕ Yangi kun qo‘shish"]],
+                    [["text" => "📢 Xabar yuborish"], ["text" => "📊 Statistika"]]
+                ],
+                'resize_keyboard' => true
+            ])
+        ]);
+    }
 
-        $lines = file($resultsFile, FILE_IGNORE_NEW_LINES);
-        $correct = count(array_filter($lines, fn($l) => strpos($l, '✅') === 0));
-        $wrong = count(array_filter($lines, fn($l) => strpos($l, '❌') === 0));
-        $percent = round(($correct / ($correct + $wrong)) * 100, 1);
-
-        $summary = "📊 $day-kun natijalari:\n======================\n";
-        $summary .= "✅ To‘g‘ri javoblar: $correct\n❌ Noto‘g‘ri javoblar: $wrong\n📈 Umumiy foiz: $percent%\n";
-        if ($percent < 20) {
-            $summary .= "\n⚠️ Diqqat! Natijangiz juda past. Harakat qiling!";
+    // Boshqa yozilgan raqam — masalan: 1, 2, 3 kun
+    elseif (is_numeric($text)) {
+        $day = intval($text);
+        if (file_exists("questions/$day.json")) {
+            $questions = json_decode(file_get_contents("questions/$day.json"), true);
+            $answers = json_decode(file_get_contents("answers/$day.json"), true);
+            file_put_contents("steps/$cid.json", json_encode([
+                'day' => $day,
+                'index' => 0,
+                'score' => 0,
+                'total' => count($questions)
+            ]));
+            bot('sendMessage', ['chat_id' => $cid, 'text' => "🧠 Savol 1:\n" . $questions[0]]);
         } else {
-            $summary .= "\n💡 Zo‘r! Yaxshi ishladingiz.";
+            bot('sendMessage', ['chat_id' => $cid, 'text' => "⚠️ Bu kun uchun savollar hali tayyor emas."]);
         }
-        bot('sendMessage', ['chat_id' => $cid, 'text' => $summary]);
+    }
+
+    // Javob tekshirish
+    elseif (file_exists("steps/$cid.json")) {
+        $data = json_decode(file_get_contents("steps/$cid.json"), true);
+        $questions = json_decode(file_get_contents("questions/{$data['day']}.json"), true);
+        $answers = json_decode(file_get_contents("answers/{$data['day']}.json"), true);
+        $index = $data['index'];
+
+        $correct = mb_strtolower(trim($answers[$index]));
+        $user_ans = mb_strtolower(trim($text));
+
+        if ($user_ans == $correct) {
+            $data['score']++;
+            bot('sendMessage', ['chat_id' => $cid, 'text' => "✅ To‘g‘ri!"]);
+        } else {
+            bot('sendMessage', ['chat_id' => $cid, 'text' => "❌ Noto‘g‘ri!\nTo‘g‘ri javob: $correct"]);
+        }
+
+        $data['index']++;
+
+        if ($data['index'] < $data['total']) {
+            file_put_contents("steps/$cid.json", json_encode($data));
+            bot('sendMessage', ['chat_id' => $cid, 'text' => "🧠 Savol " . ($data['index'] + 1) . ":\n" . $questions[$data['index']]]);
+        } else {
+            unlink("steps/$cid.json");
+            $foiz = round(($data['score'] / $data['total']) * 100);
+            $msg = "📊 Natija: $foiz%\nTo‘g‘ri: {$data['score']} ta\nXato: " . ($data['total'] - $data['score']) . " ta";
+            if ($foiz < 20) $msg .= "\n⚠️ Iltimos, ko‘proq harakat qiling. Aks holda bloklanishingiz mumkin.";
+            bot('sendMessage', ['chat_id' => $cid, 'text' => $msg]);
+
+            $scores = file_exists("scores.json") ? json_decode(file_get_contents("scores.json"), true) : [];
+            $scores[$cid] = $foiz;
+            file_put_contents("scores.json", json_encode($scores));
+        }
+    }
+
+    // Admin yangi kun savollari
+    elseif ($text == "➕ Yangi kun qo‘shish" && $cid == ADMIN_ID) {
+        file_put_contents("steps/$cid-admin.txt", "await_day");
+        bot('sendMessage', ['chat_id' => $cid, 'text' => "📅 Yangi kun raqamini yuboring:"]);
+    }
+    elseif (file_exists("steps/$cid-admin.txt")) {
+        $step = file_get_contents("steps/$cid-admin.txt");
+
+        if ($step == "await_day") {
+            file_put_contents("steps/$cid-admin.txt", "day-$text-0");
+            file_put_contents("questions/$text.json", json_encode([]));
+            file_put_contents("answers/$text.json", json_encode([]));
+            bot('sendMessage', ['chat_id' => $cid, 'text' => "✍️ 1-savolni kiriting:"]);
+        }
+        elseif (preg_match("/day-(\d+)-(\d+)/", $step, $m)) {
+            $day = $m[1];
+            $idx = intval($m[2]);
+            $q = json_decode(file_get_contents("questions/$day.json"), true);
+            $q[] = $text;
+            file_put_contents("questions/$day.json", json_encode($q));
+            file_put_contents("steps/$cid-admin.txt", "day-ans-$day-$idx");
+            bot('sendMessage', ['chat_id' => $cid, 'text' => "✍️ Ushbu savolning javobini kiriting:"]);
+        }
+        elseif (preg_match("/day-ans-(\d+)-(\d+)/", $step, $m)) {
+            $day = $m[1];
+            $a = json_decode(file_get_contents("answers/$day.json"), true);
+            $a[] = $text;
+            file_put_contents("answers/$day.json", json_encode($a));
+            $idx = intval($m[2]) + 1;
+            if ($idx < 7) {
+                file_put_contents("steps/$cid-admin.txt", "day-$day-$idx");
+                bot('sendMessage', ['chat_id' => $cid, 'text' => "✍️ " . ($idx + 1) . "-savolni kiriting:"]);
+            } else {
+                unlink("steps/$cid-admin.txt");
+                $users = explode("\n", trim(file_get_contents("users.txt")));
+                foreach ($users as $u) {
+                    bot('sendMessage', ['chat_id' => $u, 'text' => "📢 *$day-kun savollari tayyor!*\nYozing: $day", 'parse_mode' => 'markdown']);
+                }
+                bot('sendMessage', ['chat_id' => $cid, 'text' => "✅ $day-kun saqlandi va foydalanuvchilarga yuborildi."]);
+            }
+        }
+    }
+
+    // Xabar yuborish (tugmali holatda yoziladi)
+    elseif ($text == "📢 Xabar yuborish" && $cid == ADMIN_ID) {
+        file_put_contents("steps/$cid-admin.txt", "broadcast");
+        bot('sendMessage', ['chat_id' => $cid, 'text' => "📨 Yubormoqchi bo‘lgan xabaringizni yozing:"]);
+    }
+    elseif (file_exists("steps/$cid-admin.txt") && file_get_contents("steps/$cid-admin.txt") == "broadcast") {
+        $users = explode("\n", trim(file_get_contents("users.txt")));
+        foreach ($users as $u) {
+            bot('sendMessage', ['chat_id' => $u, 'text' => $text]);
+        }
+        unlink("steps/$cid-admin.txt");
+        bot('sendMessage', ['chat_id' => $cid, 'text' => "✅ Xabar barcha foydalanuvchilarga yuborildi."]);
     }
 }
 ?>
